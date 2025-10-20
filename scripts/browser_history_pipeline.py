@@ -4,6 +4,10 @@ import sqlite3
 from pathlib import Path
 from urllib.parse import urlparse
 from shutil import copy2
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+
 
 # ---------- SETTINGS ----------
 USE_REAL_DATA = True  # Set False to use sample CSV
@@ -29,7 +33,7 @@ if USE_REAL_DATA:
         print("Chrome history copied to private_data")
     else:
         print("✅ Using local real browsing history.")
-        print("Backup already exists — using existing copy.")
+        print("Chrome history backup already exists — using existing copy.")
     db_path = CHROME_HISTORY_COPY
 
 
@@ -51,7 +55,7 @@ if USE_REAL_DATA:
 
 else:
     # Load sample CSV and create sample DB
-    df = pd.read_csv(SAMPLE_CSV)
+    df = pd.read_csv(SAMPLE_CSV, encoding="latin-1")
     conn = sqlite3.connect(SAMPLE_DB)
     df.to_sql('urls', conn, if_exists='replace', index=False)
     conn.close()
@@ -61,16 +65,47 @@ else:
 
 
 #  Transform - extract domain and categorize
-def categorize(url):
-    if "openai" in url:
-        return "Work"
-    elif "bbc" in url:
-        return "News"
-    else:
-        return "Learning"
+# Combine URL and title for clustering
+df["domain"] = df["url"].apply(lambda x: urlparse(x).netloc.replace("www.", ""))
+df['text'] = df['domain'].fillna('') + " " + df['title'].fillna('')
+# 1️⃣ TF-IDF Vectorization
+url_stopwords = ['https', 'http', 'www', 'com', 'org', 'net']
+all_stopwords = list(set(ENGLISH_STOP_WORDS).union(url_stopwords))
+vectorizer = TfidfVectorizer(max_features=1000, stop_words=all_stopwords)
+X = vectorizer.fit_transform(df['text'])
 
-df["category"] = df["url"].apply(categorize)
+# 2️⃣ Apply KMeans clustering
+NUM_CLUSTERS =5  # Adjust based on your data
+kmeans = KMeans(n_clusters=NUM_CLUSTERS, random_state=42)
+df['cluster_id'] = kmeans.fit_predict(X)
 
+# 3️⃣ Automatically generate human-readable cluster labels
+feature_names = vectorizer.get_feature_names_out()
+cluster_centers = kmeans.cluster_centers_
+
+def generate_cluster_label(cluster_id, n_keywords):
+    """
+    Extracts top TF-IDF keywords from the centroid of a given cluster.
+    """
+    center = cluster_centers[cluster_id]
+    top_indices = center.argsort()[-n_keywords:][::-1]  # Top N words
+    keywords = [feature_names[idx].capitalize() for idx in top_indices]
+    return " / ".join(keywords)
+
+# Create a mapping from cluster ID to readable name
+auto_cluster_names = {
+    cluster_id: generate_cluster_label(cluster_id, n_keywords=1)
+    for cluster_id in range(NUM_CLUSTERS)
+}
+
+# 4️⃣ Apply readable names to the dataframe
+df['category'] = df['cluster_id'].map(auto_cluster_names)
+
+# 5️⃣ Clean up
+df = df.drop(columns=['text'])
+
+print("🔍 Auto-generated cluster names:", auto_cluster_names)
+print(df[['url', 'title', 'last_visit_time', 'category']].head())
 
 
 # What time of day browse most
@@ -83,7 +118,7 @@ print("⏰ Peak browsing hour:\n", busiest_hour)
 browsing_by_hour.to_csv("../data/summary_browsing_by_hour.csv", index=False)
 
 # Which websites dominate your daily activity
-df["domain"] = df["url"].apply(lambda x: urlparse(x).netloc.replace("www.", ""))
+#df["domain"] = df["url"].apply(lambda x: urlparse(x).netloc.replace("www.", ""))
 domain_stats = df.groupby("domain").size().reset_index(name="visits")
 top_domains = domain_stats.sort_values("visits", ascending=False).head(10)
 print('🌐 Top websites visited:\n', top_domains)
