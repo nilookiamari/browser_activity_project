@@ -2,3 +2,5 @@ pandas
 matplotlib
 sqlalchemy
 jupyter
+seaborn
+scikit-learn
