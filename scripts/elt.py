@@ -10,7 +10,7 @@ from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
 
 # ---------- SETTINGS ----------
-USE_REAL_DATA = True  # Set False to use sample CSV
+USE_REAL_DATA = False  # Set False to use sample CSV
 SAMPLE_CSV = "../data/sample_history.csv"
 SAMPLE_DB = "../data/sample_history.sqlite"
 UPDATED_DB = "../data/updated_history.sqlite"
@@ -68,18 +68,18 @@ else:
 # Combine URL and title for clustering
 df["domain"] = df["url"].apply(lambda x: urlparse(x).netloc.replace("www.", ""))
 df['text'] = df['domain'].fillna('') + " " + df['title'].fillna('')
-# 1️⃣ TF-IDF Vectorization
-url_stopwords = ['https', 'http', 'www', 'com', 'org', 'net']
+#  TF-IDF Vectorization
+url_stopwords = ['https', 'http', 'www', 'com', 'org', 'net', 'uk']
 all_stopwords = list(set(ENGLISH_STOP_WORDS).union(url_stopwords))
 vectorizer = TfidfVectorizer(max_features=1000, stop_words=all_stopwords)
 X = vectorizer.fit_transform(df['text'])
 
-# 2️⃣ Apply KMeans clustering
+#  Apply KMeans clustering
 NUM_CLUSTERS =5  # Adjust based on your data
 kmeans = KMeans(n_clusters=NUM_CLUSTERS, random_state=42)
 df['cluster_id'] = kmeans.fit_predict(X)
 
-# 3️⃣ Automatically generate human-readable cluster labels
+#  Automatically generate human-readable cluster labels
 feature_names = vectorizer.get_feature_names_out()
 cluster_centers = kmeans.cluster_centers_
 
@@ -98,38 +98,40 @@ auto_cluster_names = {
     for cluster_id in range(NUM_CLUSTERS)
 }
 
-# 4️⃣ Apply readable names to the dataframe
+#  Apply readable names to the dataframe
 df['category'] = df['cluster_id'].map(auto_cluster_names)
 
-# 5️⃣ Clean up
+#  Clean up
 df = df.drop(columns=['text'])
+df = df.drop(columns=['cluster_id'])
 
 print("🔍 Auto-generated cluster names:", auto_cluster_names)
-print(df[['url', 'title', 'last_visit_time', 'category']].head())
 
 
 # What time of day browse most
-df = df.dropna(subset=['last_visit_time'])
-df['last_visit_time'] = pd.to_datetime(df['last_visit_time'], errors='coerce')
+#df = df.dropna(subset=['last_visit_time'])
+df['last_visit_time'] = pd.to_datetime(df['last_visit_time'], dayfirst=True, errors='coerce')
 df["hour"] = df["last_visit_time"].dt.hour
 browsing_by_hour = df.groupby("hour").size().reset_index(name="count")
 busiest_hour = browsing_by_hour.sort_values("count", ascending=False).head(1)
 print("⏰ Peak browsing hour:\n", busiest_hour)
 browsing_by_hour.to_csv("../data/summary_browsing_by_hour.csv", index=False)
 
+
+
 # Which websites dominate your daily activity
-#df["domain"] = df["url"].apply(lambda x: urlparse(x).netloc.replace("www.", ""))
 domain_stats = df.groupby("domain").size().reset_index(name="visits")
 top_domains = domain_stats.sort_values("visits", ascending=False).head(10)
 print('🌐 Top websites visited:\n', top_domains)
 domain_stats.to_csv("../data/summary_domains.csv", index=False)
+
+
 
 # Load - save into a new database
 conn = sqlite3.connect("../data/updated_history.sqlite")
 df.to_sql("updated_history", conn, if_exists="replace", index=False)
 df.to_csv("../data/updated_history.csv", index=False)
 
-print(df)
 conn.close()
 
 print("Data successfully loaded into database!")
