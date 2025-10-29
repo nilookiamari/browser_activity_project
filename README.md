@@ -25,4 +25,4 @@ The pipeline can process real Chrome browsing history or a sample dataset, provi
    pip install -r requirements.txt
 3. Run Python scripts or Jupyter notebooks in the notebooks/ folder
 
-4. (Optional) Export the processed data to CSV or connect db.sqlite to Power BI to create interactive dashboards
+
